@@ -93,6 +93,69 @@ console.log("\n=== Protected Regions ===")
   )
 }
 
+{
+  const regions = findProtectedRegions("check /home/joao/Desktop/opencode for me")
+  assert(regions.length === 1, `absolute path detected (got ${regions.length})`)
+  const r = regions.find((r) => r.start === 6)
+  assert(!!r, "absolute path start correct")
+  const matched = "check /home/joao/Desktop/opencode for me".substring(r!.start, r!.end)
+  assert(matched === "/home/joao/Desktop/opencode", `matched '${matched}'`)
+}
+
+{
+  const regions = findProtectedRegions("look at ~/projects/my-app/src")
+  assert(regions.length === 1, `home-relative path detected (got ${regions.length})`)
+}
+
+{
+  const regions = findProtectedRegions("run ./scripts/build.sh and ../config.toml")
+  assert(regions.length === 2, `relative paths detected (got ${regions.length})`)
+}
+
+{
+  const regions = findProtectedRegions("see src/index.ts and /tmp/output")
+  assert(
+    regions.some((r) => r.start === 21),
+    "absolute path /tmp/output detected",
+  )
+}
+
+{
+  const regions = findProtectedRegions("it's a test with somee typos don't worry")
+  assert(regions.length === 0, `no false path matches in normal text (got ${regions.length})`)
+}
+
+{
+  const regions = findProtectedRegions("check AGENTS.md for more info")
+  assert(regions.length === 1, `bare filename AGENTS.md detected (got ${regions.length})`)
+  const r = regions[0]
+  const matched = "check AGENTS.md for more info".substring(r!.start, r!.end)
+  assert(matched === "AGENTS.md", `matched '${matched}'`)
+}
+
+{
+  const regions = findProtectedRegions("see README.md and package.json")
+  assert(regions.length === 2, `multiple bare filenames detected (got ${regions.length})`)
+}
+
+{
+  const regions = findProtectedRegions("the file src/index.ts at ./src/index.ts")
+  assert(
+    regions.length === 2,
+    `bare filename and path both detected (got ${regions.length})`,
+  )
+  const bare = regions.find((r) => {
+    const text = "the file src/index.ts at ./src/index.ts"
+    return text.substring(r.start, r.end) === "src/index.ts"
+  })
+  assert(!!bare, "bare filename src/index.ts found even with path prefix")
+}
+
+{
+  const regions = findProtectedRegions("there are noo files here")
+  assert(regions.length === 0, `no false filename matches in normal text (got ${regions.length})`)
+}
+
 console.log("\n=== parseSuggestion ===")
 
 {
@@ -150,6 +213,21 @@ console.log("\n=== Harper CLI + applyFixes ===")
   } else {
     assert(true, "no lints for quoted content")
   }
+}
+
+{
+  const text = "I cloned the opencode source to /home/joao/Desktop/opencode. It has somee typos."
+  const lints = await runHarper(text)
+  const regions = findProtectedRegions(text)
+  const { changes } = applyFixes(text, lints, regions)
+  assert(
+    !changes.some((c) => c.toLowerCase().includes("joao")),
+    "file paths are not spell-corrected",
+  )
+  assert(
+    changes.some((c) => c.includes("somee")),
+    "typos outside paths are still corrected",
+  )
 }
 
 console.log(`\n=== Results: ${passed} passed, ${failed} failed ===`)

@@ -48,6 +48,20 @@ export function findProtectedRegions(text: string): Region[] {
     if (!overlapsExisting(s, e)) regions.push({ start: s, end: e })
   }
 
+  const pathRe = /(?<=\s|^)(?:~?(?:\/|\.{1,2}\/)[\w.\/~\-]+)/g
+  while ((m = pathRe.exec(text)) !== null) {
+    const s = m.index
+    const e = s + m[0].length
+    if (!overlapsExisting(s, e)) regions.push({ start: s, end: e })
+  }
+
+  const filenameRe = /\b[A-Za-z][\w.\/-]*\.(?:md|txt|json|toml|yaml|yml|ts|js|tsx|jsx|rs|go|py|rb|java|c|cpp|h|sh|bash|zsh|html|css|scss|xml|sql|lock|log|env|gitignore|dockerignore|editorconfig|prettierrc|eslintrc)\b/g
+  while ((m = filenameRe.exec(text)) !== null) {
+    const s = m.index
+    const e = s + m[0].length
+    if (!overlapsExisting(s, e)) regions.push({ start: s, end: e })
+  }
+
   return regions
 }
 
@@ -131,15 +145,68 @@ export const HarperSpellCheck = async ({ client }: any) => {
       if (!Array.isArray(parts)) return
 
       for (const part of parts) {
-        if (part.type !== "text" || part.ignored) continue
-        if (!part.text || typeof part.text !== "string") continue
-        if (part.text.trim().length === 0) continue
+        if (part.type !== "text" || part.ignored || part.synthetic) {
+          await client.app.log({
+            body: {
+              service: "opencode-harper",
+              level: "debug",
+              message: `Skipping part: type=${part.type} ignored=${part.ignored} synthetic=${part.synthetic}`,
+            },
+          })
+          continue
+        }
+        if (!part.text || typeof part.text !== "string") {
+          await client.app.log({
+            body: {
+              service: "opencode-harper",
+              level: "debug",
+              message: `Skipping part: no text (type=${part.type})`,
+            },
+          })
+          continue
+        }
+        if (part.text.trim().length === 0) {
+          await client.app.log({
+            body: {
+              service: "opencode-harper",
+              level: "debug",
+              message: `Skipping part: empty text`,
+            },
+          })
+          continue
+        }
+
+        await client.app.log({
+          body: {
+            service: "opencode-harper",
+            level: "debug",
+            message: `Spell-checking text (len=${part.text.length}): ${part.text.length > 200 ? part.text.slice(0, 200) + "..." : part.text}`,
+          },
+        })
 
         try {
           const lints = await lintWithHarper(part.text)
+
+          await client.app.log({
+            body: {
+              service: "opencode-harper",
+              level: "debug",
+              message: `Harper returned ${lints.length} lint(s): ${JSON.stringify(lints.map(l => ({ rule: l.rule, matched: l.matched_text, suggestions: l.suggestions, span: l.span })))}`,
+            },
+          })
+
           if (!lints.length) continue
 
           const regions = findProtectedRegions(part.text)
+
+          await client.app.log({
+            body: {
+              service: "opencode-harper",
+              level: "debug",
+              message: `Protected regions: ${JSON.stringify(regions)}`,
+            },
+          })
+
           const { text: corrected, changes } = applyFixes(
             part.text,
             lints,
@@ -147,6 +214,13 @@ export const HarperSpellCheck = async ({ client }: any) => {
           )
 
           if (changes.length > 0) {
+            await client.app.log({
+              body: {
+                service: "opencode-harper",
+                level: "debug",
+                message: `Applied ${changes.length} change(s): ${changes.join(", ")}`,
+              },
+            })
             part.text = corrected
             const summary =
               changes.length <= 5
