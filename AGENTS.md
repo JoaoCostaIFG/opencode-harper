@@ -24,11 +24,13 @@ Or place `index.ts` directly in your global plugins directory (`~/.config/openco
 
 ## How it works
 
-1. Intercepts user prompts via `experimental.chat.messages.transform` hook (before they're sent to the model)
-2. Runs `harper-cli lint --format json` on each user text part via `Bun.spawn()`
-3. Applies all Harper corrections (spelling, grammar, style, typos)
-4. Shows a toast notification with changes made
-5. Model output is **not** spell-checked
+1. Intercepts user prompts via `chat.message` hook (when a new user message is created, before it's saved)
+2. Skips messages from non-primary agents — only processes messages where `input.agent` is `"build"` or `"plan"`. Subagent messages (`"explore"`, `"general"`, etc.) and internal agents (`"compaction"`, `"title"`, `"summary"`) are ignored.
+3. Filters to **original user text only** — skips parts marked `synthetic` (system-injected content like file reads, tool output summaries) and `ignored` parts
+4. Runs `harper-cli lint --format json` on each user text part via `Bun.spawn()`
+5. Applies all Harper corrections (spelling, grammar, style, typos)
+6. Shows a toast notification with changes made
+7. Model output is **not** spell-checked
 
 ## Protected regions
 
@@ -38,6 +40,7 @@ Corrections are **skipped** inside:
 - **Inline code** (`` `...` ``)
 - **Double-quoted strings** (`"..."`, including smart quotes)
 - **Single-quoted strings** (`'...'`, including smart quotes) — contractions like `it's`, `don't` are preserved via lookbehind/lookahead regex
+- **File paths** (absolute `/home/user/...`, home-relative `~/...`, relative `./...` and `../...`)
 
 The regex ensures that single quotes between word characters (contractions, possessives) are NOT treated as quoted regions.
 
