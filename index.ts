@@ -123,50 +123,51 @@ export const HarperSpellCheck = async ({ client }: any) => {
       const msgs = output?.messages
       if (!Array.isArray(msgs)) return
 
-      for (const msg of msgs) {
-        if (msg?.info?.role !== "user") continue
-        const parts = msg?.parts
-        if (!Array.isArray(parts)) continue
+      const lastUserMsg = [...msgs].reverse().find(
+        (m) => m?.info?.role === "user",
+      )
+      if (!lastUserMsg) return
+      const parts = lastUserMsg?.parts
+      if (!Array.isArray(parts)) return
 
-        for (const part of parts) {
-          if (part.type !== "text" || part.ignored) continue
-          if (!part.text || typeof part.text !== "string") continue
-          if (part.text.trim().length === 0) continue
+      for (const part of parts) {
+        if (part.type !== "text" || part.ignored) continue
+        if (!part.text || typeof part.text !== "string") continue
+        if (part.text.trim().length === 0) continue
 
-          try {
-            const lints = await lintWithHarper(part.text)
-            if (!lints.length) continue
+        try {
+          const lints = await lintWithHarper(part.text)
+          if (!lints.length) continue
 
-            const regions = findProtectedRegions(part.text)
-            const { text: corrected, changes } = applyFixes(
-              part.text,
-              lints,
-              regions,
-            )
+          const regions = findProtectedRegions(part.text)
+          const { text: corrected, changes } = applyFixes(
+            part.text,
+            lints,
+            regions,
+          )
 
-            if (changes.length > 0) {
-              part.text = corrected
-              const summary =
-                changes.length <= 5
-                  ? changes.join(", ")
-                  : changes.slice(0, 5).join(", ") +
-                    ` and ${changes.length - 5} more`
-              await client.tui.showToast({
-                body: {
-                  message: `Harper fixed ${changes.length}: ${summary}`,
-                  variant: "info",
-                },
-              })
-            }
-          } catch (e: any) {
-            await client.app.log({
+          if (changes.length > 0) {
+            part.text = corrected
+            const summary =
+              changes.length <= 5
+                ? changes.join(", ")
+                : changes.slice(0, 5).join(", ") +
+                  ` and ${changes.length - 5} more`
+            await client.tui.showToast({
               body: {
-                service: "opencode-harper",
-                level: "error",
-                message: `Harper error: ${e?.message ?? e}`,
+                message: `Harper fixed ${changes.length}: ${summary}`,
+                variant: "info",
               },
             })
           }
+        } catch (e: any) {
+          await client.app.log({
+            body: {
+              service: "opencode-harper",
+              level: "error",
+              message: `Harper error: ${e?.message ?? e}`,
+            },
+          })
         }
       }
     },
